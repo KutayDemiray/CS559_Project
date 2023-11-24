@@ -1,7 +1,7 @@
 import torch
 import gymnasium as gym
 import os
-from rl.util import *
+from rl.eval import *
 from parse_args import parse_args
 import numpy as np
 
