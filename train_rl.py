@@ -1,7 +1,7 @@
 import torch
 import gymnasium as gym
 import os
-from rl.util import *
+from rl.eval import *
 from parse_args import parse_args
 import numpy as np
 
@@ -9,7 +9,13 @@ from rl.TD3.td3 import TD3
 from rl.replaybuffer import ReplayBuffer
 
 from encoder.smallcnn.smallcnn import SmallCNN
+from encoder.resnet.resnet2d import Resnet2D
 from torchsummary import summary
+
+from train_util import *
+
+from datetime import datetime
+
 
 args = parse_args()
 print(args)
@@ -49,7 +55,7 @@ env.action_space.seed(args.seed)
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
 
-state_dim = env.observation_space.shape[0]
+state_dim = 1024  # env.observation_space.shape[0]
 # print(env.action_space.shape)
 action_dim = env.action_space.shape[0]
 max_action = float(env.action_space.high[0])
@@ -79,9 +85,15 @@ if args.load_model != "":
 replay_buffer = ReplayBuffer(state_dim, action_dim)
 
 if args.no_load_encoder:
-    repr_net = SmallCNN(state_dim)
+    if args.encoder == "cnn":
+        repr_net = SmallCNN(state_dim)
+    elif args.encoder == "resnet2d":
+        repr_net = Resnet2D(in_channels=3, out_size=state_dim)
 else:
     pass
+
+repr_net.to("cuda")
+summary(repr_net)
 
 if args.env_name in [
     "drawer-open-v2",
@@ -98,81 +110,75 @@ if args.env_name in [
 
 state, done = env.reset(seed=42), False
 state = state[0]
-rgb, seg, depth = env.render()
-rgb = torch.from_numpy(rgb.copy()).float().permute(2, 0, 1)
-state = repr_net(rgb)
+
+state = observe(env, repr_net, render_mode=args.render_mode)
+
 episode_reward = 0
 episode_timesteps = 0
 episode_num = 0
 
-with torch.no_grad():
-    for t in range(int(args.max_timesteps)):
-        episode_timesteps += 1
+for t in range(int(args.max_timesteps)):
+    episode_timesteps += 1
 
-        # Select action randomly or according to policy
-        if t < args.start_timesteps:
-            action = env.action_space.sample()
-        else:
-            action = (
-                policy.get_action(state.detach().numpy())
-                + np.random.normal(0, max_action * args.expl_noise, size=action_dim)
-            ).clip(-max_action, max_action)
+    # Select action randomly or according to policy
+    if t < args.start_timesteps:
+        action = env.action_space.sample()
+    else:
+        action = (
+            policy.get_action(state.detach().numpy())
+            + np.random.normal(0, max_action * args.expl_noise, size=action_dim)
+        ).clip(-max_action, max_action)
 
-        # Perform action
-        _, reward, terminated, truncated, _ = env.step(action)
+    # Perform action
+    _, reward, terminated, truncated, _ = env.step(action)
 
-        rgb, seg, depth = env.render()
-        rgb = torch.from_numpy(rgb.copy()).float().permute(2, 0, 1)
-        next_state = repr_net(rgb)
-        done = terminated or truncated
-        # done_bool = float(done) if episode_timesteps < env._max_episode_steps else 0
+    next_state = observe(env, repr_net, args.render_mode)
 
-        # Store data in replay buffer
-        replay_buffer.add(state, action, next_state, reward, done)
+    done = terminated or truncated
 
-        state = next_state
-        episode_reward += reward
+    # Store data in replay buffer
+    replay_buffer.add(state, action, next_state, reward, done)
 
-        # Train agent after collecting sufficient data
-        if t >= args.start_timesteps:
-            policy.train(replay_buffer, args.batch_size)
+    state = next_state
+    episode_reward += reward
 
-        if done:
-            # +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
-            print(
-                f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}"
-            )
-            # Reset environment
-            state, done = env.reset(), False
-            state = state[0]
-            rgb, seg, depth = env.render()
-            rgb = torch.from_numpy(rgb.copy()).float().permute(2, 0, 1)
-            state = repr_net(rgb)
-            episode_reward = 0
-            episode_timesteps = 0
-            episode_num += 1
+    # Train agent after collecting sufficient data
+    if t >= args.start_timesteps:
+        policy.train_batch(replay_buffer, args.batch_size)
 
-        # Evaluate episode
-        if (t + 1) % args.eval_freq == 0:
-            print("eval")
-            if args.env_name in [
-                "drawer-open-v2",
-                "soccer-v2",
-                "window-open-v2",
-                "hammer-v2",
-            ]:
-                evaluations.append(
-                    eval_metaworld_policy(
-                        policy,
-                        repr_net,
-                        args.env_name,
-                        eval_episodes=args.eval_episodes,
-                    )
+    if done:
+        # +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
+        print(
+            f"[{timestamp()}] Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}"
+        )
+        # Reset environment
+        state, done = env.reset(), False
+        state = observe(env, repr_net, render_mode=args.render_mode)
+        episode_reward = 0
+        episode_timesteps = 0
+        episode_num += 1
+
+    # Evaluate episode
+    if (t + 1) % args.eval_freq == 0:
+        print("eval")
+        if args.env_name in [
+            "drawer-open-v2",
+            "soccer-v2",
+            "window-open-v2",
+            "hammer-v2",
+        ]:
+            evaluations.append(
+                eval_metaworld_policy(
+                    policy,
+                    repr_net,
+                    args.env_name,
+                    eval_episodes=args.eval_episodes,
                 )
-            if args.save_model:
-                np.save(f"./results/{args.env_name}.pt", evaluations)
-                if not os.path.exists(f"./bin/agent/{args.env_name}"):
-                    os.mkdir(f"./bin/agent/{args.env_name}")
-                policy.save(f"./bin/agent/{args.env_name}/{args.policy}_{args.encoder}")
+            )
+        if args.save_model:
+            np.save(f"./results/{args.env_name}.pt", evaluations)
+            if not os.path.exists(f"./bin/agent/{args.env_name}"):
+                os.mkdir(f"./bin/agent/{args.env_name}")
+            policy.save(f"./bin/agent/{args.env_name}/{args.policy}_{args.encoder}")
 
 print("done")

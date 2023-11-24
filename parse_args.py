@@ -48,11 +48,16 @@ def parse_args():
 
     # Metaworld args
     parser.add_argument(
-        "--render_mode", type=str, default="rgb_array", choices=["rgb_array", "human"]
+        "--render_mode",
+        type=str,
+        default="rgb_array",
+        choices=["rgb_array", "rgbd_array", "human"],
     )
 
     # Encoder args
-    parser.add_argument("--encoder", type=str, default="cnn", choices=["cnn"])
+    parser.add_argument(
+        "--encoder", type=str, default="cnn", choices=["cnn", "resnet2d"]
+    )
     parser.add_argument("--no_load_encoder", action="store_true")
 
     args = parser.parse_args()
