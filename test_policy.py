@@ -9,7 +9,7 @@ from parse_args import parse_test_args
 
 from rl.TD3.td3 import TD3
 from rl.replaybuffer import ReplayBuffer
-from rl.util import eval_metaworld_policy
+from rl.eval import eval_metaworld_policy
 
 from encoder.smallcnn.smallcnn import SmallCNN
 
