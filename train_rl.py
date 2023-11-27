@@ -16,6 +16,8 @@ from train_util import *
 
 from datetime import datetime
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(device)
 
 args = parse_args()
 print(args)
@@ -93,7 +95,7 @@ else:
     pass
 
 repr_net.to("cuda")
-summary(repr_net)
+# summary(repr_net)
 
 if args.env_name in [
     "drawer-open-v2",

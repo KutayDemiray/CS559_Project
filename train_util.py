@@ -35,7 +35,7 @@ def observe(
         with torch.no_grad():
             state = repr_net(rgb)
 
-    state = state.cpu()
+    state = state.detach().cpu().numpy()
 
     return state
 

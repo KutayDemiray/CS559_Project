@@ -52,7 +52,7 @@ def eval_metaworld_policy(
         state = observe(eval_env, repr_net, render_mode, train=False)
 
         while not done:
-            action = policy.get_action(state.detach().numpy())
+            action = policy.get_action(state)
             _, reward, terminated, truncated, _ = eval_env.step(action)
 
             if ss_dir is not None and ss_t % ss_freq == 0:
