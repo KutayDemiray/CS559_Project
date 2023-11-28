@@ -162,3 +162,7 @@ cython_debug/
 
 bin/
 .vscode/
+
+#
+CS559_Project.code-workspace
+.vscode/
